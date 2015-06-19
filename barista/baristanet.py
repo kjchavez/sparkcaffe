@@ -9,12 +9,14 @@ from barista.ipc_utils import create_shmem_ndarray
 
 
 class BaristaNet:
-    def __init__(self, architecture, model, driver):
+    def __init__(self, solver_file, architecture_file=None, model_file=None):
+        solver = caffe.SGDSolver(solver_file)
+        self.net = solver.net
 
-        self.net = caffe.Net(architecture, model)
-
-        # TODO: set extra model parameters?
-        self.driver = driver
+        if model_file and architecture_file:
+            # Load the parameters from file
+            pretrained_net = caffe.Net(architecture_file, model_file)
+            self.net.copy_from(pretrained_net)
 
         def create_caffe_shmem_array(name):
             return create_shmem_ndarray('/'+name,
@@ -62,9 +64,7 @@ class BaristaNet:
         self.compute_semaphore = posix_ipc.Semaphore(None, flags=posix_ipc.O_CREAT | posix_ipc.O_EXCL)
         self.model_semaphore = posix_ipc.Semaphore(None, flags=posix_ipc.O_CREAT | posix_ipc.O_EXCL)
 
-        # Try to expose parameter memory
-        data_ptr, flag = self.net.params['Qconv1'][0].data.__array_interface__['data']
-        print "Qconv1 data lives at:", hex(data_ptr), data_ptr
+        # TODO: try to expose parameter memory
 
     def full_pass(self):
         self.compute_semaphore.acquire()

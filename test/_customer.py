@@ -5,12 +5,12 @@ import numpy as np
 # Subclass Customer
 class DDQCustomer(Customer):
     def update_data(self):
-        self.state[...] = np.random.randn(*self.state.shape)
+        self.data[...] = np.random.randn(*self.data.shape)
         print "Update data"
 
     def process_model(self):
         print "Pull out gradients"
-        print np.linalg.norm(self.state)
+        print np.linalg.norm(self.data)
 
 
 def main(compute_semaphore, model_semaphore, handles):

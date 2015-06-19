@@ -83,8 +83,8 @@ def write_ipc_interface(barista_net, filename):
             print >> fp, ':'.join([name, str(shape), dtype])
 
 
-def main(architecture, model):
-    barista_net = BaristaNet(architecture, model, None)
+def main(solver):
+    barista_net = BaristaNet(solver)
     write_ipc_interface(barista_net, 'ipc.out')
 
     print "Barista running. Waiting on compute semaphore:",
@@ -97,4 +97,4 @@ def main(architecture, model):
     #test_ipc_interface(barista_net)
 
 if __name__ == "__main__":
-    main("models/deepq/train_val.prototxt", "models/deepq/deepq16.caffemodel")
+    main("models/solver.prototxt")
