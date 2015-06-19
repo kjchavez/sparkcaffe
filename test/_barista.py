@@ -1,9 +1,9 @@
 from barista.baristanet import BaristaNet
 import numpy as np
 
-
 # To access the memory address for the buffer of a numpy array, use
 #     addr, flag = arr.__array_interface__['data']
+
 
 def write_ipc_interface(barista_net, filename):
     comp_sem, model_sem, interface = barista_net.get_ipc_interface()
@@ -16,8 +16,7 @@ def write_ipc_interface(barista_net, filename):
 
 def main(solver):
     barista_net = BaristaNet(solver)
-    write_ipc_interface(barista_net, 'ipc.out')
-    #barista_net.save_interface('interface.barista')
+    write_ipc_interface(barista_net, 'barista-ipc-interface.txt')
 
     print "Barista running. Waiting on compute semaphore:",
     print barista_net.compute_semaphore
@@ -29,8 +28,7 @@ def main(solver):
         print "Completed full pass #%d" % i
         print "Conv1_dW norm:", np.linalg.norm(barista_net.net.params['conv1'][0].diff)
         print "Data norm:", np.linalg.norm(barista_net.net.blobs['data'].data)
-    #test_in_memory_config(barista_net)
-    #test_ipc_interface(barista_net)
+
 
 if __name__ == "__main__":
     main("models/solver.prototxt")
