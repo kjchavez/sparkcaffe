@@ -35,3 +35,16 @@ class Customer(object):
 
         self.compute_semaphore.close()
         self.model_semaphore.close()
+
+    @staticmethod
+    def parse_ipc_interface_file(filename):
+        with open(filename) as fp:
+            compute_semaphore = next(fp).strip()
+            model_semaphore = next(fp).strip()
+            handles = []
+            for line in fp:
+                name, shape, dtype = line.split(':')
+                shape = tuple(int(x) for x in shape[1:-1].split(','))
+                handles.append((name.strip(), shape, dtype.strip()))
+
+        return compute_semaphore, model_semaphore, handles
