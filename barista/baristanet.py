@@ -1,11 +1,153 @@
 import numpy as np
 import posix_ipc
 import ctypes
+import cPickle
 
 import caffe
 import barista
 
 from barista.ipc_utils import create_shmem_ndarray
+
+
+class SharedData:
+    _null_array = None
+
+    def __init__(self, net, layer_idx):
+        self.data = None
+        self.label = None
+        self.shmem = []
+
+        self.name = net._layer_names[layer_idx]
+        handles = self.name.split('-', 1)
+
+        print "Allocating shared memory for %s." % handles[0]
+        shmem, arr = create_shmem_ndarray('/'+handles[0],
+                                          net.blobs[handles[0]].data.shape,
+                                          np.float32,
+                                          flags=posix_ipc.O_CREAT)
+        self.data = arr
+        self.shmem.append(shmem)
+
+        if len(handles) == 2:
+            shmem, arr = create_shmem_ndarray('/'+handles[1],
+                                              net.blobs[handles[1]].data.shape,
+                                              np.float32,
+                                              flags=posix_ipc.O_CREAT)
+            self.label = arr
+            self.shmem.append(shmem)
+            net.set_input_arrays(self.data, self.label, layer_idx)
+
+        else:
+            if SharedData._null_array is None:
+                SharedData._null_array = np.empty((self.data.shape[0], 1, 1, 1),
+                                                  dtype=np.float32)
+
+            print "[SharedData] Warning: didn't specify a handle for the ",
+            print "label in layer", layer_idx, ". Should not be used in net."
+            net.set_input_arrays(self.data, SharedData._null_array, layer_idx)
+
+    def sync(self):
+        pass  # Nothing to do
+
+    def get_handles(self):
+        handles = [(self.shmem[0].name, self.data.shape, str(self.data.dtype))]
+        if self.label is not None:
+            handles.append((self.shmem[1].name,
+                            self.label.shape, str(self.label.dtype)))
+        return handles
+
+    def __del__(self):
+        for shmem in self.shmem:
+            shmem.close_fd()
+            shmem.unlink()
+
+
+class SharedParameter:
+    POSTFIX = ['W', 'b', 'c', 'd']
+
+    def __init__(self, net, param_name):
+        self.caffe_params = []
+        self.shared_params = []
+        self.shmem = []
+
+        for i, param in enumerate(net.params[param_name]):
+            # Typically, we'll have two, a weight and bias.
+            shmem, arr = create_shmem_ndarray('/' + param_name +
+                                              '_' + SharedParameter.POSTFIX[i],
+                                              param.data.shape,
+                                              np.float32,
+                                              flags=posix_ipc.O_CREAT)
+
+            self.caffe_params.append(param.data)
+            self.shared_params.append(arr)
+            self.shmem.append(shmem)
+
+        self.sync_from_caffe()
+
+    def sync_to_caffe(self):
+        for i in xrange(len(self.shared_params)):
+            np.copyto(self.caffe_params[i], self.shared_params[i],
+                      casting='no')
+
+    def sync_from_caffe(self):
+        for i in xrange(len(self.shared_params)):
+            np.copyto(self.shared_params[i], self.caffe_params[i],
+                      casting='no')
+
+    def get_handles(self):
+        handles = [(self.shmem[i].name, self.shared_params[i].shape, str(self.shared_params[i].dtype))
+                   for i in xrange(len(self.shared_params))]
+
+        return handles
+
+    def __del__(self):
+        for shmem in self.shmem:
+            shmem.close_fd()
+            shmem.unlink()
+
+
+class SharedGradient:
+    POSTFIX = ['dW', 'db', 'dc', 'dd']
+
+    def __init__(self, net, param_name):
+        self.caffe_grads = []
+        self.shared_grads = []
+        self.shmem = []
+
+        for i, param in enumerate(net.params[param_name]):
+            # Typically, we'll have two, a weight and bias.
+            shmem, arr = create_shmem_ndarray('/' + param_name +
+                                              '_' + SharedGradient.POSTFIX[i],
+                                              param.diff.shape,
+                                              np.float32,
+                                              flags=posix_ipc.O_CREAT)
+
+            self.caffe_grads.append(param.diff)
+            self.shared_grads.append(arr)
+            self.shmem.append(shmem)
+
+    def sync_from_caffe(self):
+        for i in xrange(len(self.shared_grads)):
+            np.copyto(self.shared_grads[i], self.caffe_grads[i],
+                      casting='no')
+
+    def sync_to_caffe(self):
+        """ Warning: generally don't want to do this unless you know what
+        you're doing."""
+        for i in xrange(len(self.shared_grads)):
+            np.copyto(self.caffe_grads[i], self.shared_grads[i],
+                      casting='no')
+
+    def get_handles(self):
+        handles = [(self.shmem[i].name, self.shared_grads[i].shape, str(self.shared_grads[i].dtype))
+                   for i in xrange(len(self.shared_grads))]
+
+        return handles
+
+    def __del__(self):
+        for shmem in self.shmem:
+            shmem.close_fd()
+            shmem.unlink()
 
 
 class BaristaNet:
@@ -18,44 +160,21 @@ class BaristaNet:
             pretrained_net = caffe.Net(architecture_file, model_file)
             self.net.copy_from(pretrained_net)
 
-        def create_caffe_shmem_array(name):
-            return create_shmem_ndarray('/'+name,
-                                        self.net.blobs[name].data.shape,
-                                        np.float32,
-                                        flags=posix_ipc.O_CREAT)
-
         # Allocate shared memory for all memory data layers in the network
-        self.shared_arrays = {}
+        self.shared_data = []
+        self.shared_params = []
+        self.shared_grads = []
         self.shmem = {}
-        self._null_array = None
-        self.batch_size = None
-        for idx, (name, layer) in enumerate(zip(self.net._layer_names, self.net.layers)):
-            if layer.type != barista.MEMORY_DATA_LAYER:
-                continue
 
-            print "Layer '%s' is a MemoryDataLayer" % name
-            handles = name.split('-', 1)
+        for idx, layer in enumerate(self.net.layers):
+            if layer.type == barista.MEMORY_DATA_LAYER:
+                self.shared_data.append(SharedData(self.net, idx))
 
-            for name in handles:
-                print "Allocating shared memory for %s." % name
-                shmem, arr = create_caffe_shmem_array(name)
-                self.shared_arrays[name] = arr
-                self.shmem[name] = shmem
-                if self.batch_size:
-                    assert(arr.shape[0] == self.batch_size)
-                else:
-                    self.batch_size = arr.shape[0]
+        for param in self.net.params:
+            self.shared_params.append(SharedParameter(self.net, param))
+            self.shared_grads.append(SharedGradient(self.net, param))
 
-            if len(handles) == 2:
-                self.net.set_input_arrays(self.shared_arrays[handles[0]],
-                                          self.shared_arrays[handles[1]],
-                                          idx)
-            elif len(handles) == 1:
-                if self._null_array is None:
-                    shape = (self.shared_arrays[handles[0]].shape[0], 1, 1, 1)
-                    self._null_array = np.zeros(shape, dtype=np.float32)
-                self.net.set_input_arrays(self.shared_arrays[handles[0]],
-                                          self._null_array, idx)
+        self.batch_size = self.shared_data[0].data.shape[0]
 
         # Allow convenient access to certain Caffe net properties
         self.blobs = self.net.blobs
@@ -64,12 +183,22 @@ class BaristaNet:
         self.compute_semaphore = posix_ipc.Semaphore(None, flags=posix_ipc.O_CREAT | posix_ipc.O_EXCL)
         self.model_semaphore = posix_ipc.Semaphore(None, flags=posix_ipc.O_CREAT | posix_ipc.O_EXCL)
 
-        # TODO: try to expose parameter memory
+    def sync_parameters(self):
+        """ Sync the parameters from shared memory to Caffe memory. """
+        for param in self.shared_params:
+            param.sync_to_caffe()
+
+    def sync_gradients(self):
+        """ Sync gradients from Caffe memory to shared memory. """
+        for grad in self.shared_grads:
+            grad.sync_from_caffe()
 
     def full_pass(self):
         self.compute_semaphore.acquire()
+        self.sync_parameters()
         self.net.forward()
         self.net.backward()
+        self.sync_gradients()
         self.model_semaphore.release()
 
     def forward(self, end=None):
@@ -77,11 +206,14 @@ class BaristaNet:
 
     def get_ipc_interface(self):
         interface = []
-        for name in self.shared_arrays:
-            handle = (self.shmem[name].name,
-                      self.shared_arrays[name].shape,
-                      str(self.shared_arrays[name].dtype))
-            interface.append(handle)
+        for data in self.shared_data:
+            interface += data.get_handles()
+
+        for param in self.shared_params:
+            interface += param.get_handles()
+
+        for grad in self.shared_grads:
+            interface += grad.get_handles()
 
         return (self.compute_semaphore.name,
                 self.model_semaphore.name,
@@ -98,10 +230,6 @@ class BaristaNet:
         return interface_str
 
     def __del__(self):
-        for shmem in self.shmem.values():
-            shmem.close_fd()
-            shmem.unlink()
-
         self.compute_semaphore.unlink()
         self.compute_semaphore.close()
         self.model_semaphore.unlink()

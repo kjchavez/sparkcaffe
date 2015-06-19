@@ -2,6 +2,7 @@ import sys
 from barista.customer import Customer
 import numpy as np
 
+
 # Subclass Customer
 class DDQCustomer(Customer):
     def update_data(self):
@@ -10,12 +11,12 @@ class DDQCustomer(Customer):
 
     def process_model(self):
         print "Pull out gradients"
-        print np.linalg.norm(self.data)
+        print "Conv1_dW RMS value:", np.linalg.norm(self.conv1_dW)
 
 
 def main(compute_semaphore, model_semaphore, handles):
     ddq = DDQCustomer(compute_semaphore, model_semaphore, handles)
-    for _ in range(5):
+    for _ in range(10):
         ddq.run_transaction()
 
 
@@ -34,4 +35,3 @@ def parse_ipc_handle_file(filename):
 if __name__ == "__main__":
     compute_semaphore, model, handles = parse_ipc_handle_file(sys.argv[1])
     main(compute_semaphore, model, handles)
-
