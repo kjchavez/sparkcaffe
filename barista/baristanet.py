@@ -207,7 +207,9 @@ class BaristaNet:
     def full_pass(self):
         print('Waiting for compute semaphore', self.compute_semaphore.name, file=sys.stderr)
         self.compute_semaphore.acquire()
+        print('Acquired semaphore', file=sys.stderr)
         self.sync_parameters()
+        print('Synced parameters', file=sys.stderr)
         self.net.forward()
         print('Forward pass complete', file=sys.stderr)
         self.net.backward()

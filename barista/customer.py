@@ -25,6 +25,7 @@ class Customer(object):
         self.update_data()
         self.compute_semaphore.release()
         print "Released", self.compute_semaphore.name
+        print self.compute_semaphore.value
         self.model_semaphore.acquire(timeout)
         self.process_model()
 

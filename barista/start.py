@@ -33,7 +33,9 @@ if __name__ == "__main__":
     print("Script PID:", pid, file=sys.stderr)
     solver_filename = next(sys.stdin).strip()
 
+    fp = open('barista-log.'+str(os.getpid()), 'w+')
     with daemon.DaemonContext(stdout=sys.stdout,
-                              stderr=sys.stderr,
-                              working_directory=os.getcwd()):
+                              stderr=fp,
+                              working_directory=os.getcwd(),
+                              files_preserve=[fp]):
         start_barista(solver_filename)

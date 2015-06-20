@@ -31,8 +31,12 @@ dataRDD = sc.parallelize(xrange(1000))
 num_baristas = 2
 start_script = 'python -m barista.start'
 solver = SparkFiles.get("solver.prototxt")
-interfaces = sc.parallelize([solver]*num_baristas) \
+interfaces = sc.parallelize([solver]*num_baristas, num_baristas) \
                   .pipe(start_script) \
                   .collect()
 
+# Join the data
+
 print interfaces
+
+sc.stop()
