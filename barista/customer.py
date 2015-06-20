@@ -1,5 +1,5 @@
 import posix_ipc
-from ipc_utils import create_shmem_ndarray
+from ipc_utils import create_shmem_ndarray, strip_pid
 
 
 class Customer(object):
@@ -8,8 +8,9 @@ class Customer(object):
         self.shmem = {}
         for name, shape, dtype in handles:
             shmem, arr = create_shmem_ndarray(name, shape, dtype, flags=0)
-            self.arrays[name[1:]] = arr
-            self.shmem[name[1:]] = shmem
+            key = strip_pid(name)
+            self.arrays[key] = arr
+            self.shmem[key] = shmem
 
         self.compute_semaphore = posix_ipc.Semaphore(compute_semaphore, flags=0)
         self.model_semaphore = posix_ipc.Semaphore(model_semaphore, flags=0)
@@ -23,6 +24,7 @@ class Customer(object):
     def run_transaction(self, timeout=None):
         self.update_data()
         self.compute_semaphore.release()
+        print "Released", self.compute_semaphore.name
         self.model_semaphore.acquire(timeout)
         self.process_model()
 

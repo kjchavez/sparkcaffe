@@ -1,5 +1,6 @@
 import posix_ipc
 import mmap
+import os
 import numpy as np
 
 
@@ -24,3 +25,20 @@ def create_shmem_ndarray(name, shape, dtype, flags=0):
     buf = mmap.mmap(shmem.fd, shmem.size)
     arr = np.frombuffer(buf, dtype=dtype).reshape(shape)
     return shmem, arr
+
+
+def write_ipc_interface(ipc_interface, filename):
+    comp_sem, model_sem, handles = ipc_interface
+    with open(filename, 'w') as fp:
+        print >> fp, comp_sem
+        print >> fp, model_sem
+        for name, shape, dtype in handles:
+            print >> fp, ':'.join([name, str(shape), dtype])
+
+
+def prepend_pid(name):
+    return str(os.getpid()) + "__" + name
+
+
+def strip_pid(name):
+    return name.split("__", 1)[-1]

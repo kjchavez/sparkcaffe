@@ -3,7 +3,6 @@ from barista.customer import Customer
 import numpy as np
 
 
-# Subclass Customer
 class TestCustomer(Customer):
     def __init__(self, filename):
         compute_semaphore, model_semaphore, handles = \

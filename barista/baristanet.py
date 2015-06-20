@@ -1,12 +1,14 @@
-import numpy as np
+from __future__ import print_function
+import sys
+import os
 import posix_ipc
-import ctypes
-import cPickle
+from posix_ipc import O_CREAT, O_EXCL
 
+import numpy as np
 import caffe
 import barista
 
-from barista.ipc_utils import create_shmem_ndarray
+from barista.ipc_utils import create_shmem_ndarray, prepend_pid
 
 
 class SharedData:
@@ -20,8 +22,9 @@ class SharedData:
         self.name = net._layer_names[layer_idx]
         handles = self.name.split('-', 1)
 
-        print "Allocating shared memory for %s." % handles[0]
-        shmem, arr = create_shmem_ndarray('/'+handles[0],
+        # print "Allocating shared memory for %s." % handles[0]
+        handle = prepend_pid(handles[0])
+        shmem, arr = create_shmem_ndarray('/'+handle,
                                           net.blobs[handles[0]].data.shape,
                                           np.float32,
                                           flags=posix_ipc.O_CREAT)
@@ -29,7 +32,8 @@ class SharedData:
         self.shmem.append(shmem)
 
         if len(handles) == 2:
-            shmem, arr = create_shmem_ndarray('/'+handles[1],
+            handle = prepend_pid(handles[1])
+            shmem, arr = create_shmem_ndarray('/'+handle,
                                               net.blobs[handles[1]].data.shape,
                                               np.float32,
                                               flags=posix_ipc.O_CREAT)
@@ -39,11 +43,14 @@ class SharedData:
 
         else:
             if SharedData._null_array is None:
-                SharedData._null_array = np.empty((self.data.shape[0], 1, 1, 1),
-                                                  dtype=np.float32)
+                SharedData._null_array = np.empty(
+                                             (self.data.shape[0], 1, 1, 1),
+                                             dtype=np.float32)
 
-            print "[SharedData] Warning: didn't specify a handle for the ",
-            print "label in layer", layer_idx, ". Should not be used in net."
+            print("[SharedData] Warning: didn't specify a handle for the "
+                  "label in layer", layer_idx, ". Should not be used in net.",
+                  file=sys.stderr)
+
             net.set_input_arrays(self.data, SharedData._null_array, layer_idx)
 
     def sync(self):
@@ -72,8 +79,8 @@ class SharedParameter:
 
         for i, param in enumerate(net.params[param_name]):
             # Typically, we'll have two, a weight and bias.
-            shmem, arr = create_shmem_ndarray('/' + param_name +
-                                              '_' + SharedParameter.POSTFIX[i],
+            handle = prepend_pid(param_name + '_' + SharedParameter.POSTFIX[i])
+            shmem, arr = create_shmem_ndarray('/' + handle,
                                               param.data.shape,
                                               np.float32,
                                               flags=posix_ipc.O_CREAT)
@@ -116,8 +123,8 @@ class SharedGradient:
 
         for i, param in enumerate(net.params[param_name]):
             # Typically, we'll have two, a weight and bias.
-            shmem, arr = create_shmem_ndarray('/' + param_name +
-                                              '_' + SharedGradient.POSTFIX[i],
+            handle = prepend_pid(param_name + '_' + SharedGradient.POSTFIX[i])
+            shmem, arr = create_shmem_ndarray('/' + handle,
                                               param.diff.shape,
                                               np.float32,
                                               flags=posix_ipc.O_CREAT)
@@ -180,8 +187,12 @@ class BaristaNet:
         self.blobs = self.net.blobs
 
         # Create semaphore for interprocess synchronization
-        self.compute_semaphore = posix_ipc.Semaphore(None, flags=posix_ipc.O_CREAT | posix_ipc.O_EXCL)
-        self.model_semaphore = posix_ipc.Semaphore(None, flags=posix_ipc.O_CREAT | posix_ipc.O_EXCL)
+        self.compute_semaphore = posix_ipc.Semaphore(
+                                     "/"+prepend_pid("compute"),
+                                     flags=O_CREAT | O_EXCL)
+        self.model_semaphore = posix_ipc.Semaphore(
+                                   "/"+prepend_pid("model"),
+                                   flags=O_CREAT | O_EXCL)
 
     def sync_parameters(self):
         """ Sync the parameters from shared memory to Caffe memory. """
@@ -194,12 +205,16 @@ class BaristaNet:
             grad.sync_from_caffe()
 
     def full_pass(self):
+        print('Waiting for compute semaphore', self.compute_semaphore.name, file=sys.stderr)
         self.compute_semaphore.acquire()
         self.sync_parameters()
         self.net.forward()
+        print('Forward pass complete', file=sys.stderr)
         self.net.backward()
         self.sync_gradients()
+        print('Backward pass complete', file=sys.stderr)
         self.model_semaphore.release()
+        print('Model semaphore released', file=sys.stderr)
 
     def forward(self, end=None):
         self.net.forward(end=end)
