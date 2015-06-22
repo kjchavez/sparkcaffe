@@ -19,7 +19,8 @@ sc.addPyFile("barista/start.py")
 # Subclass generic barista Customer
 class MyCustomer(Customer):
     def update_data(self):
-        pass
+        self.data[:] = np.random.randn(*self.data.shape)
+        self.label[:] = np.random.choice(xrange(10), size=self.label.shape)
 
     def process_model(self):
         pass

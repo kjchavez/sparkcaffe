@@ -11,6 +11,7 @@ class TestCustomer(Customer):
 
     def update_data(self):
         self.data[...] = np.random.randn(*self.data.shape)
+        self.label[:] = np.random.choice(xrange(10), size=self.label.shape)
         print "Update data"
 
     def process_model(self):
