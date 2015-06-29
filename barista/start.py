@@ -36,6 +36,8 @@ if __name__ == "__main__":
     fp = open('barista-log.'+str(os.getpid()), 'w+')
     with daemon.DaemonContext(stdout=sys.stdout,
                               stderr=fp,
+                              stdin=sys.stdin,
                               working_directory=os.getcwd(),
+                              prevent_core=False,
                               files_preserve=[fp]):
         start_barista(solver_filename)

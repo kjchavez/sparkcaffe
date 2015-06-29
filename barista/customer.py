@@ -29,8 +29,8 @@ class Customer(object):
         self.model_semaphore.acquire(timeout)
         self.process_model()
 
-    def __getattr__(self, attr):
-        return self.arrays[attr]
+    # def __getattr__(self, attr):
+    #     return self.arrays[attr]
 
     def __del__(self):
         for shmem in self.shmem.values():
