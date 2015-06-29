@@ -33,8 +33,9 @@ You should see output on both terminals immediately, and both scripts should exi
     + Perhaps cblas_sgemm uses stdin somehow? It's been rerouted to devnull so this would break, or maybe wait for ever for a return value? But setting stdin to sys.stdin doesn't help at all.
     + Just kidding. It does work if I don't use Spark. The exact sequence of commands:
 
-        echo "models/solver.prototxt" | python -m barista.start
-        python -m test._customer barista-####.interface
+        `echo "models/solver.prototxt" | python -m barista.start`
+        
+        `python -m test._customer barista-####.interface`
 
     in particular, notice that we didn't open the log file in between. And it works if you run the customer test multiple times. And if you close the original terminal where you started barista. Also works if I open and close the log file. It seems to work almost no matter what.
     + Ok, now it also works with Spark. Not sure what happened when I was having issues. Will keep an eye out. Please report bugs.
